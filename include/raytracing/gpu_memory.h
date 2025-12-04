@@ -37,6 +37,10 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include <torch/torch.h>
+#include <torch/extension.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/ThrustAllocator.h>
 
 /// Checks the result of a cudaXXXXXX call and throws an error on failure
 #define CUDA_CHECK_THROW(x)                                                                                               \
@@ -107,8 +111,12 @@ public:
         std::cout << "GPUMemory: Allocating " << bytes_to_string(n_bytes) << "." << std::endl;
 #endif
 
-        uint8_t *rawptr = nullptr;
-        CUDA_CHECK_THROW(cudaMalloc(&rawptr, n_bytes+DEBUG_GUARD_SIZE*2));
+        // uint8_t *rawptr = nullptr;
+        // CUDA_CHECK_THROW(cudaMalloc(&rawptr, n_bytes+DEBUG_GUARD_SIZE*2));
+        size_t total_bytes = n_bytes + DEBUG_GUARD_SIZE * 2;
+        auto allocator = c10::cuda::CUDACachingAllocator::get();
+        uint8_t* rawptr = static_cast<uint8_t*>(allocator->raw_alloc(total_bytes));
+        
 #if DEBUG_GUARD_SIZE > 0
         CUDA_CHECK_THROW(cudaMemset(rawptr , 0xff, DEBUG_GUARD_SIZE));
         CUDA_CHECK_THROW(cudaMemset(rawptr+n_bytes+DEBUG_GUARD_SIZE , 0xfe, DEBUG_GUARD_SIZE));
@@ -125,7 +133,9 @@ public:
 
         uint8_t *rawptr = (uint8_t*)m_data;
         if (rawptr) rawptr-=DEBUG_GUARD_SIZE;
-        CUDA_CHECK_THROW(cudaFree(rawptr));
+        // CUDA_CHECK_THROW(cudaFree(rawptr));
+        auto allocator = c10::cuda::CUDACachingAllocator::get();
+        allocator->raw_delete(rawptr);
 
         total_n_bytes_allocated() -= get_bytes();
 
