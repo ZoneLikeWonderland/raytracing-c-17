@@ -41,6 +41,8 @@
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/ThrustAllocator.h>
+#include <c10/cuda/CUDAGuard.h>
+#include <c10/cuda/CUDACachingAllocator.h>
 
 /// Checks the result of a cudaXXXXXX call and throws an error on failure
 #define CUDA_CHECK_THROW(x)                                                                                               \
@@ -87,6 +89,7 @@ class GPUMemory {
 private:
     T* m_data = nullptr;
     size_t m_size = 0; // Number of elements
+    int m_device_index = -1;
     bool m_owned = true;
 
 public:
@@ -95,6 +98,7 @@ public:
     GPUMemory<T>& operator=(GPUMemory<T>&& other) {
         std::swap(m_data, other.m_data);
         std::swap(m_size, other.m_size);
+        std::swap(m_device_index, other.m_device_index);
         return *this;
     }
 
@@ -102,12 +106,16 @@ public:
         *this = std::move(other);
     }
 
-    __host__ __device__ GPUMemory(const GPUMemory<T> &other) : m_data{other.m_data}, m_size{other.m_size}, m_owned{false} {}
+    __host__ __device__ GPUMemory(const GPUMemory<T> &other) : m_data{other.m_data}, m_size{other.m_size}, m_device_index{other.m_device_index}, m_owned{false} {}
 
     void check_guards() const {
 #if DEBUG_GUARD_SIZE > 0
         if (!m_data)
             return;
+        c10::cuda::OptionalCUDAGuard device_guard;
+        if (m_device_index >= 0) {
+            device_guard.set_device(c10::Device(c10::kCUDA, m_device_index));
+        }
         uint8_t buf[DEBUG_GUARD_SIZE];
         const uint8_t *rawptr=(const uint8_t *)m_data;
         torch_cuda_memcpy(buf, rawptr-DEBUG_GUARD_SIZE, DEBUG_GUARD_SIZE, cudaMemcpyDeviceToHost);
@@ -134,6 +142,8 @@ public:
 
         // uint8_t *rawptr = nullptr;
         // CUDA_CHECK_THROW(cudaMalloc(&rawptr, n_bytes+DEBUG_GUARD_SIZE*2));
+        m_device_index = at::cuda::current_device();
+        c10::cuda::CUDAGuard device_guard(c10::Device(c10::kCUDA, m_device_index));
         size_t total_bytes = n_bytes + DEBUG_GUARD_SIZE * 2;
         auto allocator = c10::cuda::CUDACachingAllocator::get();
         uint8_t* rawptr = static_cast<uint8_t*>(allocator->raw_alloc(total_bytes));
@@ -155,12 +165,17 @@ public:
         uint8_t *rawptr = (uint8_t*)m_data;
         if (rawptr) rawptr-=DEBUG_GUARD_SIZE;
         // CUDA_CHECK_THROW(cudaFree(rawptr));
+        c10::cuda::OptionalCUDAGuard device_guard;
+        if (m_device_index >= 0) {
+            device_guard.set_device(c10::Device(c10::kCUDA, m_device_index));
+        }
         auto allocator = c10::cuda::CUDACachingAllocator::get();
         allocator->raw_delete(rawptr);
 
         total_n_bytes_allocated() -= get_bytes();
 
         m_data = nullptr;
+        m_device_index = -1;
     }
 
     /// Allocates memory for size items of type T

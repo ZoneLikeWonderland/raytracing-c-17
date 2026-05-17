@@ -5,10 +5,17 @@ import torch
 # CUDA extension
 import _raytracing as _backend
 
-def _cuda_device(*tensors):
+def _cuda_device(*tensors, device=None):
     devices = [tensor.device for tensor in tensors if torch.is_tensor(tensor) and tensor.is_cuda]
     assert all(device == devices[0] for device in devices), "CUDA tensors must be on the same device"
-    return devices[0] if devices else torch.device("cuda", torch.cuda.current_device())
+    if device is not None:
+        device = torch.device(device)
+        assert device.type == "cuda" and device.index is not None, device
+        if devices:
+            assert devices[0] == device, f"CUDA tensors must be on {device}, got {devices[0]}"
+        return device
+    assert devices, "CPU-only RayTracer construction requires an explicit CUDA device"
+    return devices[0]
 
 def _to_device(tensor, device, dtype):
     assert torch.is_tensor(tensor)
@@ -18,24 +25,26 @@ def _to_device(tensor, device, dtype):
     return tensor.to(dtype=dtype).contiguous()
 
 class RayTracer():
-    def __init__(self, vertices, triangles):
+    def __init__(self, vertices, triangles, device=None):
         # vertices: np.ndarray, [N, 3]
         # triangles: np.ndarray, [M, 3]
 
+        self.device = _cuda_device(vertices, triangles, device=device)
         if torch.is_tensor(vertices): vertices = vertices.cpu().numpy()
         if torch.is_tensor(triangles): triangles = triangles.cpu().numpy()
 
         assert triangles.shape[0] > 8, "BVH needs at least 8 triangles."
         
         # implementation
-        self.impl = _backend.create_raytracer(vertices, triangles)
+        with torch.cuda.device(self.device):
+            self.impl = _backend.create_raytracer(vertices, triangles)
 
     def trace(self, rays_o, rays_d, inplace=False):
         # rays_o: torch.Tensor, cuda, float, [N, 3]
         # rays_d: torch.Tensor, cuda, float, [N, 3]
         # inplace: write positions to rays_o, face_normals to rays_d
 
-        device = _cuda_device(rays_o, rays_d)
+        device = _cuda_device(rays_o, rays_d, device=self.device)
         rays_o = _to_device(rays_o, device, torch.float32)
         rays_d = _to_device(rays_d, device, torch.float32)
 

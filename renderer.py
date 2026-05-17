@@ -198,6 +198,8 @@ class GUI:
         self.H = opt.H
         self.debug = debug
         self.cam = OrbitCamera(opt.W, opt.H, r=opt.radius, fovy=opt.fovy)
+        self.device = torch.device(opt.device)
+        assert self.device.type == "cuda" and self.device.index is not None, self.device
         self.bg_color = torch.ones(3, dtype=torch.float32) # default white bg
 
         self.render_buffer = np.zeros((self.W, self.H, 3), dtype=np.float32)
@@ -218,7 +220,7 @@ class GUI:
         print(f'[INFO] load mesh {self.mesh.vertices.shape}, {self.mesh.faces.shape}')
 
         # prepare raytracer
-        self.RT = raytracing.RayTracer(self.mesh.vertices, self.mesh.faces)
+        self.RT = raytracing.RayTracer(self.mesh.vertices, self.mesh.faces, device=self.device)
 
         dpg.create_context()
         self.register_dpg()
@@ -265,7 +267,7 @@ class GUI:
 
             # outputs = self.trainer.test_gui(self.cam.pose, self.cam.intrinsics, self.W, self.H, self.bg_color, self.spp, self.downscale)
 
-            pose = torch.from_numpy(self.cam.pose).unsqueeze(0).cuda()
+            pose = torch.from_numpy(self.cam.pose).unsqueeze(0).to(self.device)
             rays = get_rays(pose, self.cam.intrinsics, self.H, self.W, -1)
             rays_o = rays['rays_o'].contiguous().view(-1, 3)
             rays_d = rays['rays_d'].contiguous().view(-1, 3)
@@ -436,6 +438,7 @@ if __name__ == '__main__':
     parser.add_argument('--H', type=int, default=1080, help="GUI height")
     parser.add_argument('--radius', type=float, default=5, help="default GUI camera radius from center")
     parser.add_argument('--fovy', type=float, default=50, help="default GUI camera fovy")
+    parser.add_argument('--device', default='cuda:0', type=str)
 
     opt = parser.parse_args()
 
