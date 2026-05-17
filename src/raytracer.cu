@@ -46,6 +46,11 @@ public:
 
         // must be contiguous, float, cuda, shape [N, 3]. check in torch side.
 
+        TORCH_CHECK(rays_o.is_cuda(), "rays_o must reside on CUDA");
+        TORCH_CHECK(rays_d.device() == rays_o.device(), "rays_d must be on the same CUDA device as rays_o");
+        TORCH_CHECK(positions.device() == rays_o.device(), "positions must be on the same CUDA device as rays_o");
+        TORCH_CHECK(normals.device() == rays_o.device(), "normals must be on the same CUDA device as rays_o");
+        TORCH_CHECK(depth.device() == rays_o.device(), "depth must be on the same CUDA device as rays_o");
         c10::cuda::CUDAGuard device_guard(rays_o.device());
         const int device = rays_o.get_device();
         if (gpu_device != device) {
@@ -55,7 +60,7 @@ public:
             gpu_device = device;
         }
         const uint32_t n_elements = rays_o.size(0);
-        cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+        cudaStream_t stream = at::cuda::getCurrentCUDAStream().stream();
 
         triangle_bvh->ray_trace_gpu(n_elements, rays_o.data_ptr<float>(), rays_d.data_ptr<float>(), positions.data_ptr<float>(), normals.data_ptr<float>(), depth.data_ptr<float>(), triangles_gpu.data(), stream);
     }
