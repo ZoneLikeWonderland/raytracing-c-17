@@ -60,6 +60,11 @@ public:
 
     static std::unique_ptr<TriangleBvh> make();
 
+    void upload_to_current_device() {
+        m_nodes_gpu.resize(0);
+        m_nodes_gpu.resize_and_copy_from_host(m_nodes);
+    }
+
     TriangleBvhNode* nodes_gpu() const {
         return m_nodes_gpu.data();
     }

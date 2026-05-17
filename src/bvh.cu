@@ -603,8 +603,6 @@ public:
             m_nodes[node_idx].right_idx = (int)m_nodes.size();
         }
 
-        m_nodes_gpu.resize_and_copy_from_host(m_nodes);
-
         // std::cout << "[INFO] Built TriangleBvh: nodes=" << m_nodes.size() << std::endl;
     }
 

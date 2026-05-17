@@ -6,6 +6,7 @@
 #include <raytracing/bvh.cuh>
 
 #include <Eigen/Dense>
+#include <c10/cuda/CUDAGuard.h>
 
 using namespace Eigen;
 
@@ -35,8 +36,6 @@ public:
 
         triangle_bvh->build(triangles_cpu, 8);
 
-        triangles_gpu.resize_and_copy_from_host(triangles_cpu);
-
         // TODO: need OPTIX
         // triangle_bvh->build_optix(triangles_gpu, m_inference_stream);
 
@@ -47,6 +46,14 @@ public:
 
         // must be contiguous, float, cuda, shape [N, 3]. check in torch side.
 
+        c10::cuda::CUDAGuard device_guard(rays_o.device());
+        const int device = rays_o.get_device();
+        if (gpu_device != device) {
+            triangle_bvh->upload_to_current_device();
+            triangles_gpu.resize(0);
+            triangles_gpu.resize_and_copy_from_host(triangles_cpu);
+            gpu_device = device;
+        }
         const uint32_t n_elements = rays_o.size(0);
         cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
@@ -56,6 +63,7 @@ public:
     std::vector<Triangle> triangles_cpu;
     GPUMemory<Triangle> triangles_gpu;
     std::shared_ptr<TriangleBvh> triangle_bvh;
+    int gpu_device = -1;
 };
     
 RayTracer* create_raytracer(Ref<const Verts> vertices, Ref<const Trigs> triangles) {
